@@ -6,22 +6,42 @@ using UnityEngine.UI;
 /// Jednoduchý UI panel pro výběr schopnosti karty.
 /// Vytvoří se dynamicky, pokud není v hierarchii.
 /// </summary>
+
 public class AbilityUIPanel : MonoBehaviour
 {
     private static AbilityUIPanel activePanel = null;
     public AffixIconManager iconManager; // Nastav v inspektoru nebo dynamicky
     private Card targetCard;
 
-    // Otevři panel pro konkrétní kartu
-    public void Init(Card card)
+    /// <summary>
+    /// Otevře affix panel pouze pokud žádný není otevřený.
+    /// </summary>
+    public static AbilityUIPanel Open(Card card, AffixIconManager iconManager, GameObject panelPrefab = null)
     {
-        // Pokud už je nějaký panel aktivní, neotevírej další
         if (activePanel != null)
         {
-            Debug.Log("[AbilityUIPanel] Již je otevřené jiné affix menu, další nebude vytvořeno.");
-            Destroy(gameObject);
-            return;
+            Debug.Log("[AbilityUIPanel] Nelze otevřít další affix okno, už je jedno otevřené.");
+            return null;
         }
+        GameObject panelObj;
+        if (panelPrefab != null)
+        {
+            panelObj = GameObject.Instantiate(panelPrefab);
+        }
+        else
+        {
+            panelObj = new GameObject("AbilityUIPanel");
+            panelObj.AddComponent<CanvasRenderer>();
+        }
+        var panel = panelObj.AddComponent<AbilityUIPanel>();
+        panel.iconManager = iconManager;
+        panel.Init(card);
+        return panel;
+    }
+
+    // Otevři panel pro konkrétní kartu (používej pouze přes Open)
+    public void Init(Card card)
+    {
         activePanel = this;
         targetCard = card;
         // Debug: Zkontroluj přiřazení iconManageru
@@ -38,6 +58,7 @@ public class AbilityUIPanel : MonoBehaviour
         {
             Debug.Log("[AbilityUIPanel] Tato karta už má affix, další nelze přidat.");
             Destroy(gameObject);
+            activePanel = null;
             return;
         }
     }
@@ -67,6 +88,14 @@ public class AbilityUIPanel : MonoBehaviour
 
     void Awake()
     {
+        // Zabrání duplicitnímu otevření panelu i při ručním vytvoření GameObjectu
+        if (activePanel != null && activePanel != this)
+        {
+            Debug.Log("[AbilityUIPanel] Panel už existuje, tento bude zničen.");
+            Destroy(gameObject);
+            return;
+        }
+        activePanel = this;
         CreatePanel();
     }
 
@@ -156,6 +185,11 @@ public class AbilityUIPanel : MonoBehaviour
             }
             if (string.IsNullOrEmpty(label)) label = affixType.Name;
             if (string.IsNullOrEmpty(desc)) desc = "";
+            // Odstraň prefix "affix" z labelu (case-insensitive)
+            if (label.ToLower().StartsWith("affix"))
+            {
+                label = label.Substring(5).TrimStart('_', ' ');
+            }
             float x = xStart + i * xStep;
             CreateAffixButton(label, affixType, x, y, desc, true);
         }
@@ -219,6 +253,12 @@ public class AbilityUIPanel : MonoBehaviour
             Debug.Log($"[AbilityUIPanel] Kliknuto na '{label}'");
             if (targetCard != null && affixType != null)
             {
+                // Zabraň přidání dalšího affixu, pokud už karta nějaký má
+                if (targetCard.affixes != null && targetCard.affixes.Count > 0)
+                {
+                    Debug.LogWarning($"[AbilityUIPanel] Karta '{targetCard.name}' už má affix, další nelze přidat.");
+                    return;
+                }
                 // Přidej logický affix (CardAffix) na kartu
                 var affix = targetCard.gameObject.AddComponent(affixType) as CardAffix;
                 if (affix != null)
@@ -226,18 +266,50 @@ public class AbilityUIPanel : MonoBehaviour
                     targetCard.affixes.Add(affix);
                     // Přidej i vizuální AffixData (pro ikonu)
                     var affixData = targetCard.gameObject.AddComponent<AffixData>();
-                    affixData.affixType = affixType.Name; // vždy používej název třídy
+                    affixData.affixType = label;
                     Sprite icon = null;
                     if (iconManager != null)
                     {
-                        icon = iconManager.GetIcon(affixType.Name);
+                        // Normalize funkce pro porovnání
+                        string Normalize(string s) {
+                            var n = s.Normalize(System.Text.NormalizationForm.FormD);
+                            System.Text.StringBuilder sb = new System.Text.StringBuilder();
+                            foreach (var c in n)
+                                if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.NonSpacingMark)
+                                    sb.Append(char.ToLowerInvariant(c));
+                            return sb.ToString().Normalize(System.Text.NormalizationForm.FormC);
+                        }
+                        string labelNorm = Normalize(label);
+                        string typeNorm = Normalize(affixType.Name);
+                        // Najdi první shodu v iconManager.icons
+                        foreach (var entry in iconManager.icons)
+                        {
+                            string entryNorm = Normalize(entry.affixType);
+                            if (entryNorm == labelNorm || entryNorm == typeNorm)
+                            {
+                                icon = entry.icon;
+                                break;
+                            }
+                        }
+                        // Fallback: zkus najít podle názvu sprite
                         if (icon == null)
                         {
-                            Debug.LogError($"[AbilityUIPanel] CHYBÍ ikona pro affix '{affixType.Name}'! Zkontroluj asset AffixIconManager: musí být položka s affixType='{affixType.Name}' a přiřazený sprite.");
+                            foreach (var entry in iconManager.icons)
+                            {
+                                if (entry.icon != null && Normalize(entry.icon.name) == labelNorm)
+                                {
+                                    icon = entry.icon;
+                                    break;
+                                }
+                            }
+                        }
+                        if (icon == null)
+                        {
+                            Debug.LogError($"[AbilityUIPanel] CHYBÍ ikona pro affix '{label}' ani '{affixType.Name}'! Zkontroluj asset AffixIconManager: musí být položka s affixType='{label}' nebo '{affixType.Name}' a přiřazený sprite.");
                         }
                         else if (icon.texture == null)
                         {
-                            Debug.LogError($"[AbilityUIPanel] Ikona pro affix '{affixType.Name}' je prázdná (sprite nemá texturu)! Zkontroluj asset AffixIconManager.");
+                            Debug.LogError($"[AbilityUIPanel] Ikona pro affix '{label}' je prázdná (sprite nemá texturu)! Zkontroluj asset AffixIconManager.");
                         }
                     }
                     else
@@ -261,8 +333,8 @@ public class AbilityUIPanel : MonoBehaviour
 
     public void ClosePanel()
     {
-        Destroy(panel);
         activePanel = null;
+        Destroy(panel);
         Destroy(gameObject);
     }
 }

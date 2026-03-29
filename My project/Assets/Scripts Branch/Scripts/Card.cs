@@ -17,8 +17,16 @@ public class Card : MonoBehaviour
     /// </summary>
     public GameObject GetModel()
     {
+        // 1. Pokud má GameObject karty vlastní model jako child, použij ten
+        foreach (Transform child in transform)
+        {
+            if (child.gameObject.CompareTag("CardModel")) // nastav tag na model prefabech
+                return child.gameObject;
+        }
+        // 2. Pokud je v CardData customModel, použij ten
         if (data != null && data.customModel != null)
             return data.customModel;
+        // 3. Jinak default
         return defaultModel;
     }
 
@@ -115,16 +123,19 @@ public class Card : MonoBehaviour
         // Detekce kliknutí kolečkem myši na kartu
         if (Input.GetMouseButtonDown(2)) // 2 = middle mouse button
         {
-            // Raycast z kamery na pozici myši
-            Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
-            RaycastHit hit;
-            if (Physics.Raycast(ray, out hit))
+            // Zabrání opakovanému otevírání affix menu
+            if (GameObject.FindObjectOfType<AbilityUIPanel>() == null)
             {
-                if (hit.transform == this.transform)
+                // Raycast z kamery na pozici myši
+                Ray ray = Camera.main.ScreenPointToRay(Input.mousePosition);
+                RaycastHit hit;
+                if (Physics.Raycast(ray, out hit))
                 {
-                    // TODO: Zobrazit UI pro výběr schopnosti
-                    Debug.Log($"Kliknuto kolečkem na kartu: {gameObject.name}");
-                    ShowAbilityUI();
+                    if (hit.transform == this.transform)
+                    {
+                        Debug.Log($"Kliknuto kolečkem na kartu: {gameObject.name}");
+                        ShowAbilityUI();
+                    }
                 }
             }
         }
@@ -206,13 +217,34 @@ public class Card : MonoBehaviour
     // Placeholder metoda pro zobrazení UI schopností
     private void ShowAbilityUI()
     {
-        // Vytvoří dynamicky UI panel pro výběr schopnosti
-        if (GameObject.FindObjectOfType<AbilityUIPanel>() == null)
+        // Zabrání otevření menu, pokud už karta má affix
+        if (affixes != null && affixes.Count > 0)
         {
+            Debug.Log("[Card] Tato karta už má affix, menu se neotevře.");
+            return;
+        }
+        var iconManager = Resources.Load<AffixIconManager>("AffixIcons/AffixIconManager");
+        if (iconManager == null)
+        {
+            Debug.LogWarning("[Card] Asset AffixIconManager nebyl nalezen v Resources! Přetáhni ho do složky Resources nebo přiřaď ručně v kódu.");
+        }
+        // Oprava volání statické metody Open, fallback na ruční vytvoření pokud by nebyla dostupná
+        #if UNITY_EDITOR || UNITY_STANDALONE
+        if (typeof(AbilityUIPanel).GetMethod("Open") != null)
+        {
+            AbilityUIPanel.Open(this, iconManager);
+        }
+        else
+        {
+            // Fallback: ruční vytvoření panelu (starý způsob)
             GameObject go = new GameObject("AbilityUIPanel");
             var panel = go.AddComponent<AbilityUIPanel>();
+            panel.iconManager = iconManager;
             panel.Init(this);
         }
+        #else
+        AbilityUIPanel.Open(this, iconManager);
+        #endif
     }
 
     /// <summary>Sníží životy karty. Vrátí true pokud karta zemřela. Shield blokuje všechen dmg.</summary>
