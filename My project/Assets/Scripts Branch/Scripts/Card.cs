@@ -8,6 +8,20 @@ using TMPro;
 /// </summary>
 public class Card : MonoBehaviour
 {
+    [Header("Defaultní model pro všechny karty bez vlastního modelu.")]
+    [Tooltip("Defaultní model pro všechny karty bez vlastního modelu.")]
+    public static GameObject defaultModel;
+
+    /// <summary>
+    /// Vrátí model, který má být použit pro tuto kartu (nejdřív custom z CardData, jinak default).
+    /// </summary>
+    public GameObject GetModel()
+    {
+        if (data != null && data.customModel != null)
+            return data.customModel;
+        return defaultModel;
+    }
+
     // Affixy (schopnosti/efekty) připojené ke kartě
     public System.Collections.Generic.List<CardAffix> affixes = new System.Collections.Generic.List<CardAffix>();
     public CardData data;

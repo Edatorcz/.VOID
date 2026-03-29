@@ -32,6 +32,9 @@ public static class CardGroupColors
 [CreateAssetMenu(fileName = "NewCard", menuName = "CardGame/Card Data")]
 public class CardData : ScriptableObject
 {
+    [Header("Model karty")]
+    [Tooltip("Vlastní model pro tuto kartu. Pokud není nastaven, použije se defaultní model.")]
+    public GameObject customModel;
     public string cardName = "Unnamed Card";
 
     public CardGroup group = CardGroup.Support;

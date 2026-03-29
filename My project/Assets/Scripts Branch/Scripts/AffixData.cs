@@ -12,14 +12,16 @@ public class AffixData : MonoBehaviour
 
     void Start()
     {
-        ShowIcon();
+        Debug.Log($"[AffixData][DEBUG] Start() na {gameObject.name}, affixType: '{affixType}', icon: {(icon == null ? "NULL" : icon.name)}");
+        // ShowIcon() NEVOLAT zde! Ikona se nastavuje až po explicitním zavolání z AbilityUIPanel.
     }
 
     public void ShowIcon()
     {
+        Debug.Log($"[AffixData][DEBUG] ShowIcon() na {gameObject.name}, affixType: '{affixType}', icon: {(icon == null ? "NULL" : icon.name)}");
         if (icon == null)
         {
-            Debug.LogWarning($"[AffixData] Ikona není nastavena pro affix '{affixType}' na {gameObject.name}");
+            Debug.LogWarning($"[AffixData][DEBUG] Ikona není nastavena pro affix '{affixType}' na {gameObject.name} (ShowIcon)");
             return;
         }
         if (iconObj != null) Destroy(iconObj);
