@@ -1,0 +1,27 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 40cb179f9957fcc4cad1f28ee0803f19, type: 3}
+  m_Name: AffixIconManager
+  m_EditorClassIdentifier: 
+  icons:
+  - affixType: Medic
+    icon: {fileID: 21300000, guid: 15e64fbcc92d04a40a3607b045205fc6, type: 3}
+  - affixType: "Bojovn\xEDk"
+    icon: {fileID: 21300000, guid: 4294fa74a16628448b05501d00c7bf57, type: 3}
+  - affixType: "\u017Delva"
+    icon: {fileID: 21300000, guid: d2522ed9f86b67e4a98e0e7e0858115e, type: 3}
+  - affixType: "Zp\xE1te\u010Dka"
+    icon: {fileID: 21300000, guid: a05cddcf58a144a4b99cb41033bf1052, type: 3}
+  - affixType: "Vidli\u010Dka"
+    icon: {fileID: 21300000, guid: 1669afeec93fe0149b0894a14ee92830, type: 3}
+  - affixType: "Rychl\xEDk"
+    icon: {fileID: 21300000, guid: 050fe7ccd6a138544ba2f8158905c223, type: 3}
