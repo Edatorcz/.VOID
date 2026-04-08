@@ -1,0 +1,14 @@
+{
+  "overrides": [
+    { "key": "Bojovník", "name": "", "desc": "" },
+    { "key": "Boxer", "name": "", "desc": "" },
+    { "key": "Dav", "name": "", "desc": "" },
+    { "key": "Medic", "name": "", "desc": "" },
+    { "key": "Prasklina", "name": "", "desc": "" },
+    { "key": "Překvápko", "name": "", "desc": "" },
+    { "key": "Rychlík", "name": "", "desc": "" },
+    { "key": "Vidlička", "name": "", "desc": "" },
+    { "key": "Želva", "name": "", "desc": "" },
+    { "key": "Zpátečka", "name": "", "desc": "" }
+  ]
+}

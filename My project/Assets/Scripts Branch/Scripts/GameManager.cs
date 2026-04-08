@@ -39,6 +39,38 @@ public class GameManager : MonoBehaviour
         if (enemyHealthText != null)
             enemyHealthText.text = EnemyHealth.ToString();
     }
+
+    void SetState(GameState newState)
+    {
+        CurrentState = newState;
+        UpdatePhaseUI();
+    }
+
+    void UpdatePhaseUI()
+    {
+        if (phaseText == null) return;
+
+        string roundPrefix = currentRound > 0 ? $"Kolo {currentRound} – " : "";
+
+        switch (CurrentState)
+        {
+            case GameState.GameStart:
+                phaseText.text = "Hra začíná...";
+                break;
+            case GameState.PlayerDraw:
+                phaseText.text = roundPrefix + "Lízni kartu z balíčku";
+                break;
+            case GameState.PlayerPlace:
+                phaseText.text = roundPrefix + "Polož karty (Space = konec)";
+                break;
+            case GameState.PlayerActions:
+                phaseText.text = roundPrefix + "Útok!";
+                break;
+            case GameState.EnemyTurn:
+                phaseText.text = roundPrefix + "Tah nepřítele...";
+                break;
+        }
+    }
     public static GameManager Instance { get; private set; }
 
     [Header("Reference")]
@@ -47,6 +79,10 @@ public class GameManager : MonoBehaviour
 
     [Tooltip("EnemyManager")]
     public EnemyManager enemyManager;
+
+    [Header("Šablony karet")]
+    [Tooltip("CardData pro Raketku (1 DMG, 1 HP) – používá Překvápko affix")]
+    public CardData raketkaTemplate;
 
     [Header("Životy")]
     [Tooltip("Životy hráče na začátku")]
@@ -60,6 +96,13 @@ public class GameManager : MonoBehaviour
 
     [Tooltip("TMP text pro zobrazení životů nepřítele")]
     public TMP_Text enemyHealthText;
+
+    [Header("Fáze / kolo")]
+    [Tooltip("TMP text zobrazující aktuální fázi hry (co má hráč dělat)")]
+    public TMP_Text phaseText;
+
+    [Tooltip("Číslo aktuálního kola")]
+    public int currentRound { get; private set; }
 
     [Header("Nastavení")]
     [Tooltip("Prodleva mezi útoky karet (v sekundách)")]
@@ -83,9 +126,10 @@ public class GameManager : MonoBehaviour
     IEnumerator GameLoop()
     {
         // ═══ GAME START ═══
-        CurrentState = GameState.GameStart;
+        SetState(GameState.GameStart);
         Debug.Log("[GameManager] ══ Hra začíná! ══");
 
+        currentRound = 0;
         PlayerHealth = playerMaxHealth;
         EnemyHealth = enemyMaxHealth;
         UpdateHealthUI();
@@ -100,26 +144,27 @@ public class GameManager : MonoBehaviour
         while (true)
         {
             // --- Hráč lízá kartu ---
-            CurrentState = GameState.PlayerDraw;
+            currentRound++;
+            SetState(GameState.PlayerDraw);
             playerDeck.drawDone = false;
             Debug.Log("[GameManager] → Hráč táhne kartu z balíčku");
 
             yield return new WaitUntil(() => playerDeck.drawDone && !playerDeck.IsBusy);
 
             // --- Hráč pokládá karty (může položit více, ukončí mezerníkem) ---
-            CurrentState = GameState.PlayerPlace;
+            SetState(GameState.PlayerPlace);
             playerDeck.turnEnded = false;
             Debug.Log("[GameManager] → Hráč pokládá karty (Space = konec tahu)");
 
             yield return new WaitUntil(() => playerDeck.turnEnded && !playerDeck.IsBusy);
 
             // --- Akce hráče ---
-            CurrentState = GameState.PlayerActions;
+            SetState(GameState.PlayerActions);
             Debug.Log("[GameManager] → Zpracování akcí hráče");
             yield return ProcessPlayerActions();
 
             // --- Tah nepřítele ---
-            CurrentState = GameState.EnemyTurn;
+            SetState(GameState.EnemyTurn);
             Debug.Log("[GameManager] → Nepřítelův tah");
             yield return enemyManager.DoFullTurn();
 
@@ -145,38 +190,40 @@ public class GameManager : MonoBehaviour
                 continue;
             }
 
+            // Boxer: odstrčí pravou přilehlou enemy kartu na poslední volnou pozici vpravo
+            if (playerCard.affixes.Exists(a => a is AffixBoxer))
+            {
+                int rightSlot = i + 1;
+                if (rightSlot < enemyManager.enemyFieldSlots.Length && enemyManager.IsSlotOccupied(rightSlot))
+                {
+                    int lastFree = -1;
+                    for (int s = enemyManager.enemyFieldSlots.Length - 1; s > rightSlot; s--)
+                    {
+                        if (!enemyManager.IsSlotOccupied(s)) { lastFree = s; break; }
+                    }
+                    if (lastFree >= 0)
+                    {
+                        Debug.Log($"[GameManager] '{playerCard.data.cardName}' (Boxer) odstrčil enemy kartu ze slotu {rightSlot} na {lastFree}");
+                        yield return enemyManager.MoveCardBetweenSlots(rightSlot, lastFree);
+                    }
+                }
+            }
+
             bool zpatecka = playerCard.affixes.Exists(a => a is AffixZpatecka);
             bool vidlicka = playerCard.affixes.Exists(a => a is AffixVidlicka);
 
             if (zpatecka)
             {
-                // Útočí na pravou enemy kartu (slot i+1)
                 int targetSlot = i + 1;
                 Card rightEnemy = (targetSlot < enemyManager.enemyFieldSlots.Length) ? enemyManager.GetCardAtSlot(targetSlot) : null;
                 if (rightEnemy != null)
                 {
-                    Debug.Log($"[GameManager] '{playerCard.data.cardName}' (Zpátečka) útočí na pravou kartu '{rightEnemy.data.cardName}'");
-                    yield return playerCard.AttackAnimation(enemyManager.enemyFieldSlots[targetSlot].position, 0.35f, 1.2f);
-                    int beforeHP = rightEnemy.currentHealth;
-                    bool died = rightEnemy.TakeDamage(playerCard.currentDamage);
-                    int afterHP = rightEnemy.currentHealth;
-                    if (died)
-                    {
-                        enemyManager.RemoveCardFromSlot(targetSlot);
-                        int overflow = -(afterHP);
-                        if (overflow > 0)
-                        {
-                            EnemyHealth -= overflow;
-                            UpdateHealthUI();
-                            if (EnemyHealth <= 0)
-                                yield break;
-                        }
-                    }
+                    yield return PlayerAttackEnemyCard(playerCard, rightEnemy, targetSlot);
+                    if (EnemyHealth <= 0) yield break;
                 }
             }
             else if (vidlicka)
             {
-                // Útočí pouze na karty vlevo a vpravo od protější karty (slot i-1, i+1)
                 int leftSlot = i - 1;
                 int rightSlot = i + 1;
                 bool hit = false;
@@ -185,23 +232,8 @@ public class GameManager : MonoBehaviour
                     Card leftEnemy = enemyManager.GetCardAtSlot(leftSlot);
                     if (leftEnemy != null)
                     {
-                        Debug.Log($"[GameManager] '{playerCard.data.cardName}' (Vidlička) útočí na levou kartu '{leftEnemy.data.cardName}'");
-                        yield return playerCard.AttackAnimation(enemyManager.enemyFieldSlots[leftSlot].position, 0.35f, 1.2f);
-                        int beforeHP = leftEnemy.currentHealth;
-                        bool died = leftEnemy.TakeDamage(playerCard.currentDamage);
-                        int afterHP = leftEnemy.currentHealth;
-                        if (died)
-                        {
-                            enemyManager.RemoveCardFromSlot(leftSlot);
-                            int overflow = -(afterHP);
-                            if (overflow > 0)
-                            {
-                                EnemyHealth -= overflow;
-                                UpdateHealthUI();
-                                if (EnemyHealth <= 0)
-                                    yield break;
-                            }
-                        }
+                        yield return PlayerAttackEnemyCard(playerCard, leftEnemy, leftSlot);
+                        if (EnemyHealth <= 0) yield break;
                         hit = true;
                     }
                 }
@@ -210,62 +242,27 @@ public class GameManager : MonoBehaviour
                     Card rightEnemy = enemyManager.GetCardAtSlot(rightSlot);
                     if (rightEnemy != null)
                     {
-                        Debug.Log($"[GameManager] '{playerCard.data.cardName}' (Vidlička) útočí na pravou kartu '{rightEnemy.data.cardName}'");
-                        yield return playerCard.AttackAnimation(enemyManager.enemyFieldSlots[rightSlot].position, 0.35f, 1.2f);
-                        int beforeHP = rightEnemy.currentHealth;
-                        bool died = rightEnemy.TakeDamage(playerCard.currentDamage);
-                        int afterHP = rightEnemy.currentHealth;
-                        if (died)
-                        {
-                            enemyManager.RemoveCardFromSlot(rightSlot);
-                            int overflow = -(afterHP);
-                            if (overflow > 0)
-                            {
-                                EnemyHealth -= overflow;
-                                UpdateHealthUI();
-                                if (EnemyHealth <= 0)
-                                    yield break;
-                            }
-                        }
+                        yield return PlayerAttackEnemyCard(playerCard, rightEnemy, rightSlot);
+                        if (EnemyHealth <= 0) yield break;
                         hit = true;
                     }
                 }
                 if (!hit)
-                {
                     Debug.Log($"[GameManager] '{playerCard.data.cardName}' (Vidlička) nemá koho zasáhnout.");
-                }
             }
             else
             {
-                // Standardní útok na protější kartu
                 Card enemyCard = enemyManager.GetCardAtSlot(i);
                 if (enemyCard != null)
                 {
-                    Debug.Log($"[GameManager] '{playerCard.data.cardName}' (dmg {playerCard.currentDamage}) útočí na '{enemyCard.data.cardName}' (hp {enemyCard.currentHealth})");
-                    yield return playerCard.AttackAnimation(enemyCard.transform.position, 0.35f, 1.2f);
-                    int beforeHP = enemyCard.currentHealth;
-                    bool died = enemyCard.TakeDamage(playerCard.currentDamage);
-                    int afterHP = enemyCard.currentHealth;
-                    if (died)
-                    {
-                        Debug.Log($"[GameManager] '{enemyCard.data.cardName}' zničena!");
-                        enemyManager.RemoveCardFromSlot(i);
-                        int overflow = -(afterHP); // afterHP je záporné nebo nula
-                        if (overflow > 0)
-                        {
-                            Debug.Log($"[GameManager] Zbylý damage {overflow} projde nepříteli!");
-                            EnemyHealth -= overflow;
-                            UpdateHealthUI();
-                            if (EnemyHealth <= 0)
-                                yield break;
-                        }
-                    }
+                    yield return PlayerAttackEnemyCard(playerCard, enemyCard, i);
+                    if (EnemyHealth <= 0) yield break;
                 }
                 else
                 {
                     // Žádná enemy karta → dmg nepříteli (násobený podle % ztracených HP)
-                    float missingPercent = 1f - (float)PlayerHealth / playerMaxHealth; // 0 na full, 1 na smrti
-                    float multiplier = 1f + missingPercent * 9f; // 1x na full HP, 10x na 0 HP
+                    float missingPercent = 1f - (float)PlayerHealth / playerMaxHealth;
+                    float multiplier = 1f + missingPercent * 9f;
                     int totalDmg = Mathf.RoundToInt(playerCard.currentDamage * multiplier);
                     Debug.Log($"[GameManager] '{playerCard.data.cardName}' dává {playerCard.currentDamage}x{multiplier:F1} = {totalDmg} dmg nepříteli!");
                     yield return playerCard.AttackAnimation(enemyManager.enemyFieldSlots[i].position, 0.35f, 1.2f);
@@ -280,9 +277,46 @@ public class GameManager : MonoBehaviour
         }
 
         Debug.Log("[GameManager] Akce hráče zpracovány.");
-
-        // Vyčisti jednorázové efekty na hráčových kartách (stun, shield)
         ClearTurnEffects(true);
+    }
+
+    /// <summary>Hráčova karta útočí na konkrétní enemy kartu (obsahuje Prasklina + Překvápko logiku).</summary>
+    IEnumerator PlayerAttackEnemyCard(Card attacker, Card defender, int defenderSlot)
+    {
+        // Prasklina: útok prochází skrz, dmg jde přímo nepříteli
+        bool prasklina = defender.affixes.Exists(a => a is AffixPrasklina);
+        if (prasklina)
+        {
+            Debug.Log($"[GameManager] '{attacker.data.cardName}' útočí skrz '{defender.data.cardName}' (Prasklina) – dmg jde nepříteli!");
+            yield return attacker.AttackAnimation(defender.transform.position, 0.35f, 1.2f);
+            EnemyHealth -= attacker.currentDamage;
+            UpdateHealthUI();
+            yield break;
+        }
+
+        Debug.Log($"[GameManager] '{attacker.data.cardName}' (dmg {attacker.currentDamage}) útočí na '{defender.data.cardName}' (hp {defender.currentHealth})");
+        yield return attacker.AttackAnimation(defender.transform.position, 0.35f, 1.2f);
+        bool died = defender.TakeDamage(attacker.currentDamage);
+        int afterHP = defender.currentHealth;
+        if (died)
+        {
+            bool hasPrekvapko = defender.affixes.Exists(a => a is AffixPrekvapko);
+            Debug.Log($"[GameManager] '{defender.data.cardName}' zničena!");
+            enemyManager.RemoveCardFromSlot(defenderSlot);
+            int overflow = -(afterHP);
+            if (overflow > 0)
+            {
+                Debug.Log($"[GameManager] Zbylý damage {overflow} projde nepříteli!");
+                EnemyHealth -= overflow;
+                UpdateHealthUI();
+            }
+            // Překvápko: spawn Raketka na místě zničené karty
+            if (hasPrekvapko && raketkaTemplate != null && !enemyManager.IsSlotOccupied(defenderSlot))
+            {
+                Debug.Log($"[GameManager] Překvápko! Na slotu {defenderSlot} se objevuje Raketka!");
+                yield return enemyManager.SpawnCardOnSlot(raketkaTemplate, defenderSlot);
+            }
+        }
     }
 
     /// <summary>Enemy karty útočí na hráče (voláno z EnemyManager).</summary>
@@ -304,41 +338,40 @@ public class GameManager : MonoBehaviour
                 continue;
             }
 
+            // Boxer: odstrčí pravou přilehlou player kartu na poslední volnou pozici vpravo
+            if (enemyCard.affixes.Exists(a => a is AffixBoxer))
+            {
+                int rightSlot = i + 1;
+                if (rightSlot < playerDeck.SlotCount && playerDeck.IsSlotOccupied(rightSlot))
+                {
+                    int lastFree = -1;
+                    for (int s = playerDeck.SlotCount - 1; s > rightSlot; s--)
+                    {
+                        if (!playerDeck.IsSlotOccupied(s)) { lastFree = s; break; }
+                    }
+                    if (lastFree >= 0)
+                    {
+                        Debug.Log($"[GameManager] Enemy '{enemyCard.data.cardName}' (Boxer) odstrčil player kartu ze slotu {rightSlot} na {lastFree}");
+                        yield return playerDeck.MoveCardBetweenSlots(rightSlot, lastFree);
+                    }
+                }
+            }
+
             bool zpatecka = enemyCard.affixes.Exists(a => a is AffixZpatecka);
             bool vidlicka = enemyCard.affixes.Exists(a => a is AffixVidlicka);
 
             if (zpatecka)
             {
-                // Útočí na pravou hráčovu kartu (slot i+1)
                 int targetSlot = i + 1;
                 Card rightPlayer = (targetSlot < playerDeck.SlotCount) ? playerDeck.GetCardAtSlot(targetSlot) : null;
                 if (rightPlayer != null)
                 {
-                    Debug.Log($"[GameManager] Enemy '{enemyCard.data.cardName}' (Zpátečka) útočí na pravou kartu '{rightPlayer.data.cardName}'");
-                    yield return enemyCard.AttackAnimation(playerDeck.fieldSlots[targetSlot].position, 0.35f, 1.2f);
-                    int beforeHP = rightPlayer.currentHealth;
-                    bool died = rightPlayer.TakeDamage(enemyCard.currentDamage);
-                    int afterHP = rightPlayer.currentHealth;
-                    if (died)
-                    {
-                        playerDeck.RemoveCardFromSlot(targetSlot);
-                        int overflow = -(afterHP);
-                        if (overflow > 0)
-                        {
-                            PlayerHealth -= overflow;
-                            UpdateHealthUI();
-                            if (PlayerHealth <= 0)
-                            {
-                                Debug.Log("[GameManager] Hráč poražen! GAME OVER!");
-                                yield break;
-                            }
-                        }
-                    }
+                    yield return EnemyAttackPlayerCard(enemyCard, rightPlayer, targetSlot);
+                    if (PlayerHealth <= 0) yield break;
                 }
             }
             else if (vidlicka)
             {
-                // Útočí pouze na karty vlevo a vpravo od protější karty (slot i-1, i+1)
                 int leftSlot = i - 1;
                 int rightSlot = i + 1;
                 bool hit = false;
@@ -347,26 +380,8 @@ public class GameManager : MonoBehaviour
                     Card leftPlayer = playerDeck.GetCardAtSlot(leftSlot);
                     if (leftPlayer != null)
                     {
-                        Debug.Log($"[GameManager] Enemy '{enemyCard.data.cardName}' (Vidlička) útočí na levou kartu '{leftPlayer.data.cardName}'");
-                        yield return enemyCard.AttackAnimation(playerDeck.fieldSlots[leftSlot].position, 0.35f, 1.2f);
-                        int beforeHP = leftPlayer.currentHealth;
-                        bool died = leftPlayer.TakeDamage(enemyCard.currentDamage);
-                        int afterHP = leftPlayer.currentHealth;
-                        if (died)
-                        {
-                            playerDeck.RemoveCardFromSlot(leftSlot);
-                            int overflow = -(afterHP);
-                            if (overflow > 0)
-                            {
-                                PlayerHealth -= overflow;
-                                UpdateHealthUI();
-                                if (PlayerHealth <= 0)
-                                {
-                                    Debug.Log("[GameManager] Hráč poražen! GAME OVER!");
-                                    yield break;
-                                }
-                            }
-                        }
+                        yield return EnemyAttackPlayerCard(enemyCard, leftPlayer, leftSlot);
+                        if (PlayerHealth <= 0) yield break;
                         hit = true;
                     }
                 }
@@ -375,66 +390,24 @@ public class GameManager : MonoBehaviour
                     Card rightPlayer = playerDeck.GetCardAtSlot(rightSlot);
                     if (rightPlayer != null)
                     {
-                        Debug.Log($"[GameManager] Enemy '{enemyCard.data.cardName}' (Vidlička) útočí na pravou kartu '{rightPlayer.data.cardName}'");
-                        yield return enemyCard.AttackAnimation(playerDeck.fieldSlots[rightSlot].position, 0.35f, 1.2f);
-                        int beforeHP = rightPlayer.currentHealth;
-                        bool died = rightPlayer.TakeDamage(enemyCard.currentDamage);
-                        int afterHP = rightPlayer.currentHealth;
-                        if (died)
-                        {
-                            playerDeck.RemoveCardFromSlot(rightSlot);
-                            int overflow = -(afterHP);
-                            if (overflow > 0)
-                            {
-                                PlayerHealth -= overflow;
-                                UpdateHealthUI();
-                                if (PlayerHealth <= 0)
-                                {
-                                    Debug.Log("[GameManager] Hráč poražen! GAME OVER!");
-                                    yield break;
-                                }
-                            }
-                        }
+                        yield return EnemyAttackPlayerCard(enemyCard, rightPlayer, rightSlot);
+                        if (PlayerHealth <= 0) yield break;
                         hit = true;
                     }
                 }
                 if (!hit)
-                {
                     Debug.Log($"[GameManager] Enemy '{enemyCard.data.cardName}' (Vidlička) nemá koho zasáhnout.");
-                }
             }
             else
             {
                 Card playerCard = playerDeck.GetCardAtSlot(i);
                 if (playerCard != null)
                 {
-                    // Útok na hráčovu kartu
-                    Debug.Log($"[GameManager] Enemy '{enemyCard.data.cardName}' (dmg {enemyCard.currentDamage}) útočí na '{playerCard.data.cardName}' (hp {playerCard.currentHealth})");
-                    yield return enemyCard.AttackAnimation(playerCard.transform.position, 0.35f, 1.2f);
-                    int beforeHP = playerCard.currentHealth;
-                    bool died = playerCard.TakeDamage(enemyCard.currentDamage);
-                    int afterHP = playerCard.currentHealth;
-                    if (died)
-                    {
-                        Debug.Log($"[GameManager] '{playerCard.data.cardName}' zničena!");
-                        playerDeck.RemoveCardFromSlot(i);
-                        int overflow = -(afterHP); // afterHP je záporné nebo nula
-                        if (overflow > 0)
-                        {
-                            Debug.Log($"[GameManager] Zbylý damage {overflow} projde hráči!");
-                            PlayerHealth -= overflow;
-                            UpdateHealthUI();
-                            if (PlayerHealth <= 0)
-                            {
-                                Debug.Log("[GameManager] Hráč poražen! GAME OVER!");
-                                yield break;
-                            }
-                        }
-                    }
+                    yield return EnemyAttackPlayerCard(enemyCard, playerCard, i);
+                    if (PlayerHealth <= 0) yield break;
                 }
                 else
                 {
-                    // Žádná player karta → dmg hráči
                     Debug.Log($"[GameManager] Enemy '{enemyCard.data.cardName}' dává {enemyCard.currentDamage} dmg hráči!");
                     yield return enemyCard.AttackAnimation(playerDeck.fieldSlots[i].position, 0.35f, 1.2f);
                     PlayerHealth -= enemyCard.currentDamage;
@@ -451,9 +424,46 @@ public class GameManager : MonoBehaviour
         }
 
         Debug.Log("[GameManager] Akce nepřítele zpracovány.");
-
-        // Vyčisti jednorázové efekty na enemy kartách (stun, shield)
         ClearTurnEffects(false);
+    }
+
+    /// <summary>Enemy karta útočí na konkrétní hráčovu kartu (obsahuje Prasklina + Překvápko logiku).</summary>
+    IEnumerator EnemyAttackPlayerCard(Card attacker, Card defender, int defenderSlot)
+    {
+        // Prasklina: útok prochází skrz, dmg jde přímo hráči
+        bool prasklina = defender.affixes.Exists(a => a is AffixPrasklina);
+        if (prasklina)
+        {
+            Debug.Log($"[GameManager] Enemy '{attacker.data.cardName}' útočí skrz '{defender.data.cardName}' (Prasklina) – dmg jde hráči!");
+            yield return attacker.AttackAnimation(defender.transform.position, 0.35f, 1.2f);
+            PlayerHealth -= attacker.currentDamage;
+            UpdateHealthUI();
+            yield break;
+        }
+
+        Debug.Log($"[GameManager] Enemy '{attacker.data.cardName}' (dmg {attacker.currentDamage}) útočí na '{defender.data.cardName}' (hp {defender.currentHealth})");
+        yield return attacker.AttackAnimation(defender.transform.position, 0.35f, 1.2f);
+        bool died = defender.TakeDamage(attacker.currentDamage);
+        int afterHP = defender.currentHealth;
+        if (died)
+        {
+            bool hasPrekvapko = defender.affixes.Exists(a => a is AffixPrekvapko);
+            Debug.Log($"[GameManager] '{defender.data.cardName}' zničena!");
+            playerDeck.RemoveCardFromSlot(defenderSlot);
+            int overflow = -(afterHP);
+            if (overflow > 0)
+            {
+                Debug.Log($"[GameManager] Zbylý damage {overflow} projde hráči!");
+                PlayerHealth -= overflow;
+                UpdateHealthUI();
+            }
+            // Překvápko: spawn Raketka na místě zničené karty
+            if (hasPrekvapko && raketkaTemplate != null && !playerDeck.IsSlotOccupied(defenderSlot))
+            {
+                Debug.Log($"[GameManager] Překvápko! Na slotu {defenderSlot} se objevuje Raketka!");
+                yield return playerDeck.SpawnCardOnSlot(raketkaTemplate, defenderSlot);
+            }
+        }
     }
 
     /// <summary>Vyčistí stun a shield na kartách dané strany (po útočné fázi).</summary>

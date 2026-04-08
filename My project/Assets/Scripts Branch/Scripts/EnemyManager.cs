@@ -282,4 +282,32 @@ public class EnemyManager : MonoBehaviour
         occupiedSlots.Remove(slotIndex);
         return card;
     }
+
+    /// <summary>Vytvoří kartu přímo na slot (pro Překvápko apod.).</summary>
+    public Coroutine SpawnCardOnSlot(CardData cardData, int slotIndex)
+    {
+        GameObject cardObj = Instantiate(cardPrefab, enemyFieldSlots[slotIndex].position + Vector3.up * 2f, cardPrefab.transform.rotation);
+        Card card = cardObj.GetComponent<Card>();
+        if (card == null) card = cardObj.AddComponent<Card>();
+        card.Setup(cardData);
+        occupiedSlots[slotIndex] = card;
+        return StartCoroutine(SpawnCardOnSlotCoroutine(card, slotIndex));
+    }
+
+    IEnumerator SpawnCardOnSlotCoroutine(Card card, int slotIndex)
+    {
+        yield return card.MoveToPosition(enemyFieldSlots[slotIndex].position, dealDuration);
+        Quaternion slotRot = enemyFieldSlots[slotIndex].rotation * Quaternion.Euler(0f, 0f, cardPrefab.transform.rotation.eulerAngles.z);
+        card.SetBasePositionAndRotation(enemyFieldSlots[slotIndex].position, slotRot, true);
+    }
+
+    /// <summary>Přesune kartu z jednoho slotu na druhý.</summary>
+    public Coroutine MoveCardBetweenSlots(int fromSlot, int toSlot)
+    {
+        if (!occupiedSlots.ContainsKey(fromSlot) || occupiedSlots.ContainsKey(toSlot)) return null;
+        Card card = occupiedSlots[fromSlot];
+        occupiedSlots.Remove(fromSlot);
+        occupiedSlots[toSlot] = card;
+        return StartCoroutine(SpawnCardOnSlotCoroutine(card, toSlot));
+    }
 }

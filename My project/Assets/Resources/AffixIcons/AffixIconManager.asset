@@ -25,3 +25,11 @@ MonoBehaviour:
     icon: {fileID: 21300000, guid: 1669afeec93fe0149b0894a14ee92830, type: 3}
   - affixType: "Rychl\xEDk"
     icon: {fileID: 21300000, guid: 050fe7ccd6a138544ba2f8158905c223, type: 3}
+  - affixType: Prasklina
+    icon: {fileID: 21300000, guid: aed7730bd26ced14291780d70025bf07, type: 3}
+  - affixType: Boxer
+    icon: {fileID: 21300000, guid: 821150b60c2016a4ca552962fb0352e5, type: 3}
+  - affixType: Dav
+    icon: {fileID: 21300000, guid: 55fa94937a19d0746b525d6c9ebe1d2c, type: 3}
+  - affixType: "P\u0159ekv\xE1pko"
+    icon: {fileID: 21300000, guid: 0a4933a6f3d810d45a6817c8e300e9a4, type: 3}

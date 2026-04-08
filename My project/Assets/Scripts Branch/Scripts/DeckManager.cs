@@ -86,6 +86,28 @@ public class DeckManager : MonoBehaviour
             }
         }
 
+        // Dav: spočítej kolik karet s AffixDav je na poli, každá s Davem dostane +davCount DMG
+        int davCount = 0;
+        for (int i = 0; i < fieldSlots.Length; i++)
+        {
+            if (occupiedSlots.TryGetValue(i, out Card card2) && card2 != null)
+            {
+                if (card2.affixes.Exists(a => a is AffixDav))
+                    davCount++;
+            }
+        }
+        if (davCount > 0)
+        {
+            for (int i = 0; i < fieldSlots.Length; i++)
+            {
+                if (occupiedSlots.TryGetValue(i, out Card card3) && card3 != null)
+                {
+                    if (card3.affixes.Exists(a => a is AffixDav))
+                        card3.currentDamage += davCount;
+                }
+            }
+        }
+
         // Po změně statů aktualizuj zobrazení
         for (int i = 0; i < fieldSlots.Length; i++)
         {
@@ -850,6 +872,7 @@ public class DeckManager : MonoBehaviour
             Card card = occupiedSlots[slotIndex];
             occupiedSlots.Remove(slotIndex);
             StartCoroutine(card.DestroyAnimation());
+            UpdateDynamicAffixes();
         }
     }
 

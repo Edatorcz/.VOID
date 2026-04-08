@@ -12,8 +12,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 73162bd1c8c3a804f93993866df9de3a, type: 3}
   m_Name: TestSupport
   m_EditorClassIdentifier: 
+  customModel: {fileID: 216560144384625954, guid: 89507fc0f08269049b4032cca73e1831, type: 3}
   cardName: Test Support
   group: 0
   description: 
   cost: 1
+  health: 3
+  damage: 1
   artwork: {fileID: 0}

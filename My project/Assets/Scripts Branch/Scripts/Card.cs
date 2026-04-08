@@ -191,6 +191,34 @@ public class Card : MonoBehaviour
         currentHealth = data.health;
         currentDamage = data.damage;
 
+        // Vlastní model z CardData má prioritu – nahradí defaultní vizuál
+        if (data.customModel != null)
+        {
+            // Skryj defaultní renderer na tomto GO
+            Renderer ownRenderer = GetComponent<Renderer>();
+            if (ownRenderer != null)
+                ownRenderer.enabled = false;
+
+            // Skryj všechny existující child modely (tagged CardModel)
+            foreach (Transform child in transform)
+            {
+                if (child.gameObject.CompareTag("CardModel"))
+                    child.gameObject.SetActive(false);
+            }
+
+            // Spawn custom model jako child
+            GameObject modelInstance = Instantiate(data.customModel, transform);
+            modelInstance.transform.localPosition = Vector3.zero;
+            modelInstance.transform.localRotation = Quaternion.identity;
+            modelInstance.tag = "CardModel";
+
+            // Přepoj renderer na nový model
+            cardRenderer = modelInstance.GetComponent<Renderer>();
+            if (cardRenderer == null)
+                cardRenderer = modelInstance.GetComponentInChildren<Renderer>();
+            spriteRenderer = modelInstance.GetComponent<SpriteRenderer>();
+        }
+
         // Barva podle skupiny
         if (cardRenderer != null && cardRenderer.material != null)
         {
