@@ -65,6 +65,33 @@ public class EnemyManager : MonoBehaviour
     [Tooltip("Kolik karet navíc za každý level/kolo (přidá se k min/max per group)")]
     public int scalingPerRound = 0;
 
+    [Header("Affixy")]
+    [Tooltip("Šance (0–1), že enemy karta dostane náhodný affix při položení")]
+    [Range(0f, 1f)]
+    public float affixChance = 0.15f;
+
+    /// <summary>Typy affixů, které mohou dostat enemy karty.</summary>
+    private static readonly System.Type[] possibleAffixes = new System.Type[]
+    {
+        typeof(AffixBoxer),
+        typeof(AffixBojovnik),
+        typeof(AffixMedic),
+        typeof(AffixDav),
+        typeof(AffixZelva),
+        typeof(AffixPrasklina),
+        typeof(AffixPrekvapko),
+        typeof(AffixVidlicka),
+        typeof(AffixZpatecka),
+        typeof(AffixTruhlice),
+        typeof(AffixBordelar),
+        typeof(AffixKaktus),
+        typeof(AffixBomba),
+        typeof(AffixEvoluce),
+        typeof(AffixUhyb),
+        typeof(AffixPozar),
+        typeof(AffixSilak),
+    };
+
     private List<CardData> remainingDeck = new List<CardData>();
     private Dictionary<int, Card> occupiedSlots = new Dictionary<int, Card>();
     private bool isTakingTurn;
@@ -213,6 +240,31 @@ public class EnemyManager : MonoBehaviour
                 {
                     affix.OnTurnStart(card);
                 }
+                // Požár – pokud karta umřela na hoření, odstraň ji
+                if (card.currentHealth <= 0)
+                {
+                    Debug.Log($"[EnemyManager] Hráčova '{card.data.cardName}' shořela (Požár)!");
+                    GameManager.Instance.playerDeck.RemoveCardFromSlot(i);
+                }
+            }
+        }
+
+        // Spusť OnTurnStart pro všechny affixy enemy karet (Evoluce, Požár apod.)
+        for (int i = 0; i < enemyFieldSlots.Length; i++)
+        {
+            Card eCard = GetCardAtSlot(i);
+            if (eCard != null)
+            {
+                foreach (var affix in eCard.affixes)
+                {
+                    affix.OnTurnStart(eCard);
+                }
+                // Požár – pokud karta umřela na hoření, odstraň ji
+                if (eCard.currentHealth <= 0)
+                {
+                    Debug.Log($"[EnemyManager] '{eCard.data.cardName}' shořela (Požár)!");
+                    RemoveCardFromSlot(i);
+                }
             }
         }
     }
@@ -254,11 +306,44 @@ public class EnemyManager : MonoBehaviour
             card = cardObj.AddComponent<Card>();
 
         card.Setup(cardData);
+
+        // Náhodná šance na affix
+        if (Random.value < affixChance)
+        {
+            System.Type affixType = possibleAffixes[Random.Range(0, possibleAffixes.Length)];
+            var affix = cardObj.AddComponent(affixType) as CardAffix;
+            if (affix != null)
+            {
+                card.affixes.Add(affix);
+                var affixData = cardObj.AddComponent<AffixData>();
+                affixData.affixType = affix.AffixName;
+                Debug.Log($"[EnemyManager] Enemy karta '{cardData.cardName}' dostala affix: {affix.AffixName}");
+            }
+        }
+
         occupiedSlots[slotIndex] = card;
 
         yield return card.MoveToPosition(enemyFieldSlots[slotIndex].position, dealDuration);
         Quaternion slotRot = enemyFieldSlots[slotIndex].rotation * Quaternion.Euler(0f, 0f, cardPrefab.transform.rotation.eulerAngles.z);
         card.SetBasePositionAndRotation(enemyFieldSlots[slotIndex].position, slotRot, true);
+
+        // Bordelář: spawn Bordel na přilehlých volných slotech
+        if (card.affixes.Exists(a => a is AffixBordelar))
+        {
+            CardData bordelData = GameManager.Instance != null ? GameManager.Instance.bordelTemplate : null;
+            if (bordelData != null)
+            {
+                int[] adj = new int[] { slotIndex - 1, slotIndex + 1 };
+                foreach (int a in adj)
+                {
+                    if (a >= 0 && a < enemyFieldSlots.Length && !occupiedSlots.ContainsKey(a))
+                    {
+                        Debug.Log($"[EnemyManager] Bordelář: spawn Bordel na enemy slotu {a}.");
+                        yield return SpawnCardOnSlot(GameManager.Instance.bordelTemplate, a);
+                    }
+                }
+            }
+        }
 
         Debug.Log($"[EnemyManager] Nepřítel položil '{cardData.cardName}' na slot {slotIndex}.");
     }

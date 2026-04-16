@@ -456,4 +456,75 @@ public class Card : MonoBehaviour
 
         transform.position = originalPos;
     }
+
+    /// <summary>
+    /// Animace úhybu – karta uskočí do strany s lehkým náklonem a vrátí se. Používá AffixUhyb.
+    /// </summary>
+    public IEnumerator DodgeAnimation(Vector3 dodgeDirection, float distance = 0.8f, float duration = 0.35f)
+    {
+        Vector3 start = transform.position;
+        Vector3 dodge = start + dodgeDirection.normalized * distance;
+        Quaternion startRot = transform.rotation;
+        float tiltAngle = dodgeDirection.x > 0 ? -15f : 15f;
+        Quaternion tiltRot = startRot * Quaternion.Euler(0f, 0f, tiltAngle);
+
+        float half = duration * 0.5f;
+        float elapsed = 0f;
+
+        // Uskočení
+        while (elapsed < half)
+        {
+            elapsed += Time.deltaTime;
+            float t = Mathf.SmoothStep(0f, 1f, elapsed / half);
+            transform.position = Vector3.Lerp(start, dodge, t);
+            transform.rotation = Quaternion.Slerp(startRot, tiltRot, t);
+            yield return null;
+        }
+
+        // Krátká pauza
+        yield return new WaitForSeconds(0.05f);
+
+        // Návrat
+        elapsed = 0f;
+        while (elapsed < half)
+        {
+            elapsed += Time.deltaTime;
+            float t = Mathf.SmoothStep(0f, 1f, elapsed / half);
+            transform.position = Vector3.Lerp(dodge, start, t);
+            transform.rotation = Quaternion.Slerp(tiltRot, startRot, t);
+            yield return null;
+        }
+
+        transform.position = start;
+        transform.rotation = startRot;
+    }
+
+    /// <summary>
+    /// Animace kopírování/imitace – karta krátce zdvojí (ghost efekt).
+    /// </summary>
+    public IEnumerator ImitateAnimation(float duration = 0.5f)
+    {
+        Renderer rend = GetComponent<Renderer>();
+        if (rend == null) rend = GetComponentInChildren<Renderer>();
+        if (rend == null || rend.material == null) yield break;
+
+        Color origColor = rend.material.color;
+        Color cyan = new Color(0.2f, 0.8f, 1f, 1f);
+
+        Vector3 origScale = transform.localScale;
+        float elapsed = 0f;
+
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            float t = elapsed / duration;
+            float wave = Mathf.Sin(t * Mathf.PI);
+            rend.material.color = Color.Lerp(origColor, cyan, wave * 0.6f);
+            transform.localScale = Vector3.Lerp(origScale, origScale * 1.15f, wave);
+            yield return null;
+        }
+
+        rend.material.color = origColor;
+        transform.localScale = origScale;
+    }
 }

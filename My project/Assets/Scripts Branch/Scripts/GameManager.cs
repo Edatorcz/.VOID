@@ -84,6 +84,12 @@ public class GameManager : MonoBehaviour
     [Tooltip("CardData pro Raketku (1 DMG, 1 HP) – používá Překvápko affix")]
     public CardData raketkaTemplate;
 
+    [Tooltip("CardData pro Bordel (0 DMG, 2 HP) – používá Bordelář affix")]
+    public CardData bordelTemplate;
+
+    [Tooltip("CardData šablony pro Truhlici (Striker + Support) – hráč dostane 3 náhodné do ruky")]
+    public CardData[] truhliceCards;
+
     [Header("Životy")]
     [Tooltip("Životy hráče na začátku")]
     public int playerMaxHealth = 20;
@@ -190,21 +196,21 @@ public class GameManager : MonoBehaviour
                 continue;
             }
 
-            // Boxer: odstrčí pravou přilehlou enemy kartu na poslední volnou pozici vpravo
+            // Boxer: odstrčí pravou přilehlou friendly kartu na poslední volnou pozici vpravo
             if (playerCard.affixes.Exists(a => a is AffixBoxer))
             {
                 int rightSlot = i + 1;
-                if (rightSlot < enemyManager.enemyFieldSlots.Length && enemyManager.IsSlotOccupied(rightSlot))
+                if (rightSlot < playerDeck.SlotCount && playerDeck.IsSlotOccupied(rightSlot))
                 {
                     int lastFree = -1;
-                    for (int s = enemyManager.enemyFieldSlots.Length - 1; s > rightSlot; s--)
+                    for (int s = playerDeck.SlotCount - 1; s > rightSlot; s--)
                     {
-                        if (!enemyManager.IsSlotOccupied(s)) { lastFree = s; break; }
+                        if (!playerDeck.IsSlotOccupied(s)) { lastFree = s; break; }
                     }
                     if (lastFree >= 0)
                     {
-                        Debug.Log($"[GameManager] '{playerCard.data.cardName}' (Boxer) odstrčil enemy kartu ze slotu {rightSlot} na {lastFree}");
-                        yield return enemyManager.MoveCardBetweenSlots(rightSlot, lastFree);
+                        Debug.Log($"[GameManager] '{playerCard.data.cardName}' (Boxer) odstrčil friendly kartu ze slotu {rightSlot} na {lastFree}");
+                        yield return playerDeck.MoveCardBetweenSlots(rightSlot, lastFree);
                     }
                 }
             }
@@ -294,13 +300,58 @@ public class GameManager : MonoBehaviour
             yield break;
         }
 
+        // Úhyb: karta se vyhne útoku a přesune se na volnou pozici vedle
+        if (defender.affixes.Exists(a => a is AffixUhyb))
+        {
+            int dodgeSlot = -1;
+            // Zkus vpravo, pak vlevo
+            if (defenderSlot + 1 < enemyManager.enemyFieldSlots.Length && !enemyManager.IsSlotOccupied(defenderSlot + 1))
+                dodgeSlot = defenderSlot + 1;
+            else if (defenderSlot - 1 >= 0 && !enemyManager.IsSlotOccupied(defenderSlot - 1))
+                dodgeSlot = defenderSlot - 1;
+
+            if (dodgeSlot >= 0)
+            {
+                Debug.Log($"[GameManager] '{defender.data.cardName}' (Úhyb) uskočila ze slotu {defenderSlot} na {dodgeSlot}!");
+                Vector3 dodgeDir = (enemyManager.enemyFieldSlots[dodgeSlot].position - defender.transform.position).normalized;
+                yield return defender.DodgeAnimation(dodgeDir);
+                yield return enemyManager.MoveCardBetweenSlots(defenderSlot, dodgeSlot);
+                // Útok mine – dmg jde nepříteli místo toho
+                yield return attacker.AttackAnimation(enemyManager.enemyFieldSlots[defenderSlot].position, 0.35f, 1.2f);
+                yield break;
+            }
+        }
+
         Debug.Log($"[GameManager] '{attacker.data.cardName}' (dmg {attacker.currentDamage}) útočí na '{defender.data.cardName}' (hp {defender.currentHealth})");
         yield return attacker.AttackAnimation(defender.transform.position, 0.35f, 1.2f);
+
+        // Kaktus: útočník obdrží 1 poškození po zásahu
+        if (defender.affixes.Exists(a => a is AffixKaktus))
+        {
+            Debug.Log($"[GameManager] '{defender.data.cardName}' (Kaktus) vrací 1 dmg útočníkovi '{attacker.data.cardName}'!");
+            bool attackerDied = attacker.TakeDamage(1);
+            if (attackerDied)
+            {
+                Debug.Log($"[GameManager] '{attacker.data.cardName}' zemřel na Kaktus!");
+                // Najdi slot útočníka a odstraň
+                for (int s = 0; s < playerDeck.SlotCount; s++)
+                {
+                    if (playerDeck.GetCardAtSlot(s) == attacker)
+                    {
+                        playerDeck.RemoveCardFromSlot(s);
+                        break;
+                    }
+                }
+            }
+        }
+
         bool died = defender.TakeDamage(attacker.currentDamage);
         int afterHP = defender.currentHealth;
         if (died)
         {
             bool hasPrekvapko = defender.affixes.Exists(a => a is AffixPrekvapko);
+            bool hasTruhlice = defender.affixes.Exists(a => a is AffixTruhlice);
+            bool hasBomba = defender.affixes.Exists(a => a is AffixBomba);
             Debug.Log($"[GameManager] '{defender.data.cardName}' zničena!");
             enemyManager.RemoveCardFromSlot(defenderSlot);
             int overflow = -(afterHP);
@@ -315,6 +366,47 @@ public class GameManager : MonoBehaviour
             {
                 Debug.Log($"[GameManager] Překvápko! Na slotu {defenderSlot} se objevuje Raketka!");
                 yield return enemyManager.SpawnCardOnSlot(raketkaTemplate, defenderSlot);
+            }
+            // Truhlice: hráč dostane 3 karty (Striker/Support) do ruky
+            if (hasTruhlice && truhliceCards != null && truhliceCards.Length > 0)
+            {
+                Debug.Log($"[GameManager] Truhlice! Hráč dostává 3 karty do ruky.");
+                for (int t = 0; t < 3; t++)
+                {
+                    CardData randomCard = truhliceCards[Random.Range(0, truhliceCards.Length)];
+                    playerDeck.AddCardToHand(randomCard);
+                }
+            }
+            // Bomba: 5 DMG přilehlým enemy kartám a protější player kartě
+            if (hasBomba)
+            {
+                Debug.Log($"[GameManager] Bomba! Výbuch na slotu {defenderSlot}.");
+                // Přilehlé enemy karty (vlevo a vpravo)
+                int[] adjacentSlots = new int[] { defenderSlot - 1, defenderSlot + 1 };
+                foreach (int adj in adjacentSlots)
+                {
+                    if (adj >= 0 && adj < enemyManager.enemyFieldSlots.Length && enemyManager.IsSlotOccupied(adj))
+                    {
+                        Card adjCard = enemyManager.GetCardAtSlot(adj);
+                        Debug.Log($"[GameManager] Bomba zasáhla přilehlou enemy kartu '{adjCard.data.cardName}' na slotu {adj}!");
+                        bool adjDied = adjCard.TakeDamage(5);
+                        if (adjDied)
+                        {
+                            enemyManager.RemoveCardFromSlot(adj);
+                        }
+                    }
+                }
+                // Protější player karta
+                if (defenderSlot < playerDeck.SlotCount && playerDeck.IsSlotOccupied(defenderSlot))
+                {
+                    Card oppositeCard = playerDeck.GetCardAtSlot(defenderSlot);
+                    Debug.Log($"[GameManager] Bomba zasáhla protější kartu '{oppositeCard.data.cardName}' na slotu {defenderSlot}!");
+                    bool oppDied = oppositeCard.TakeDamage(5);
+                    if (oppDied)
+                    {
+                        playerDeck.RemoveCardFromSlot(defenderSlot);
+                    }
+                }
             }
         }
     }
@@ -338,21 +430,21 @@ public class GameManager : MonoBehaviour
                 continue;
             }
 
-            // Boxer: odstrčí pravou přilehlou player kartu na poslední volnou pozici vpravo
+            // Boxer: odstrčí pravou přilehlou friendly (enemy) kartu na poslední volnou pozici vpravo
             if (enemyCard.affixes.Exists(a => a is AffixBoxer))
             {
                 int rightSlot = i + 1;
-                if (rightSlot < playerDeck.SlotCount && playerDeck.IsSlotOccupied(rightSlot))
+                if (rightSlot < enemyManager.enemyFieldSlots.Length && enemyManager.IsSlotOccupied(rightSlot))
                 {
                     int lastFree = -1;
-                    for (int s = playerDeck.SlotCount - 1; s > rightSlot; s--)
+                    for (int s = enemyManager.enemyFieldSlots.Length - 1; s > rightSlot; s--)
                     {
-                        if (!playerDeck.IsSlotOccupied(s)) { lastFree = s; break; }
+                        if (!enemyManager.IsSlotOccupied(s)) { lastFree = s; break; }
                     }
                     if (lastFree >= 0)
                     {
-                        Debug.Log($"[GameManager] Enemy '{enemyCard.data.cardName}' (Boxer) odstrčil player kartu ze slotu {rightSlot} na {lastFree}");
-                        yield return playerDeck.MoveCardBetweenSlots(rightSlot, lastFree);
+                        Debug.Log($"[GameManager] Enemy '{enemyCard.data.cardName}' (Boxer) odstrčil friendly enemy kartu ze slotu {rightSlot} na {lastFree}");
+                        yield return enemyManager.MoveCardBetweenSlots(rightSlot, lastFree);
                     }
                 }
             }
@@ -441,13 +533,54 @@ public class GameManager : MonoBehaviour
             yield break;
         }
 
+        // Úhyb: karta se vyhne útoku a přesune se na volnou pozici vedle
+        if (defender.affixes.Exists(a => a is AffixUhyb))
+        {
+            int dodgeSlot = -1;
+            if (defenderSlot + 1 < playerDeck.SlotCount && !playerDeck.IsSlotOccupied(defenderSlot + 1))
+                dodgeSlot = defenderSlot + 1;
+            else if (defenderSlot - 1 >= 0 && !playerDeck.IsSlotOccupied(defenderSlot - 1))
+                dodgeSlot = defenderSlot - 1;
+
+            if (dodgeSlot >= 0)
+            {
+                Debug.Log($"[GameManager] '{defender.data.cardName}' (Úhyb) uskočila ze slotu {defenderSlot} na {dodgeSlot}!");
+                Vector3 dodgeDir = (playerDeck.fieldSlots[dodgeSlot].position - defender.transform.position).normalized;
+                yield return defender.DodgeAnimation(dodgeDir);
+                yield return playerDeck.MoveCardBetweenSlots(defenderSlot, dodgeSlot);
+                yield return attacker.AttackAnimation(playerDeck.fieldSlots[defenderSlot].position, 0.35f, 1.2f);
+                yield break;
+            }
+        }
+
         Debug.Log($"[GameManager] Enemy '{attacker.data.cardName}' (dmg {attacker.currentDamage}) útočí na '{defender.data.cardName}' (hp {defender.currentHealth})");
         yield return attacker.AttackAnimation(defender.transform.position, 0.35f, 1.2f);
+
+        // Kaktus: útočník obdrží 1 poškození po zásahu
+        if (defender.affixes.Exists(a => a is AffixKaktus))
+        {
+            Debug.Log($"[GameManager] '{defender.data.cardName}' (Kaktus) vrací 1 dmg útočníkovi '{attacker.data.cardName}'!");
+            bool attackerDied = attacker.TakeDamage(1);
+            if (attackerDied)
+            {
+                Debug.Log($"[GameManager] Enemy '{attacker.data.cardName}' zemřel na Kaktus!");
+                for (int s = 0; s < enemyManager.enemyFieldSlots.Length; s++)
+                {
+                    if (enemyManager.GetCardAtSlot(s) == attacker)
+                    {
+                        enemyManager.RemoveCardFromSlot(s);
+                        break;
+                    }
+                }
+            }
+        }
+
         bool died = defender.TakeDamage(attacker.currentDamage);
         int afterHP = defender.currentHealth;
         if (died)
         {
             bool hasPrekvapko = defender.affixes.Exists(a => a is AffixPrekvapko);
+            bool hasBomba = defender.affixes.Exists(a => a is AffixBomba);
             Debug.Log($"[GameManager] '{defender.data.cardName}' zničena!");
             playerDeck.RemoveCardFromSlot(defenderSlot);
             int overflow = -(afterHP);
@@ -462,6 +595,37 @@ public class GameManager : MonoBehaviour
             {
                 Debug.Log($"[GameManager] Překvápko! Na slotu {defenderSlot} se objevuje Raketka!");
                 yield return playerDeck.SpawnCardOnSlot(raketkaTemplate, defenderSlot);
+            }
+            // Bomba: 5 DMG přilehlým player kartám a protější enemy kartě
+            if (hasBomba)
+            {
+                Debug.Log($"[GameManager] Bomba! Výbuch na slotu {defenderSlot}.");
+                // Přilehlé player karty (vlevo a vpravo)
+                int[] adjacentSlots = new int[] { defenderSlot - 1, defenderSlot + 1 };
+                foreach (int adj in adjacentSlots)
+                {
+                    if (adj >= 0 && adj < playerDeck.SlotCount && playerDeck.IsSlotOccupied(adj))
+                    {
+                        Card adjCard = playerDeck.GetCardAtSlot(adj);
+                        Debug.Log($"[GameManager] Bomba zasáhla přilehlou player kartu '{adjCard.data.cardName}' na slotu {adj}!");
+                        bool adjDied = adjCard.TakeDamage(5);
+                        if (adjDied)
+                        {
+                            playerDeck.RemoveCardFromSlot(adj);
+                        }
+                    }
+                }
+                // Protější enemy karta
+                if (defenderSlot < enemyManager.enemyFieldSlots.Length && enemyManager.IsSlotOccupied(defenderSlot))
+                {
+                    Card oppositeCard = enemyManager.GetCardAtSlot(defenderSlot);
+                    Debug.Log($"[GameManager] Bomba zasáhla protější enemy kartu '{oppositeCard.data.cardName}' na slotu {defenderSlot}!");
+                    bool oppDied = oppositeCard.TakeDamage(5);
+                    if (oppDied)
+                    {
+                        enemyManager.RemoveCardFromSlot(defenderSlot);
+                    }
+                }
             }
         }
     }

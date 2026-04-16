@@ -1095,6 +1095,9 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   playerDeck: {fileID: 2097232453}
   enemyManager: {fileID: 1857577711}
+  raketkaTemplate: {fileID: 11400000, guid: 10d221f1341521142b4fb54b604848fa, type: 2}
+  bordelTemplate: {fileID: 11400000, guid: d9cc13a864fa43a44914e7fa54e67e6d, type: 2}
+  truhliceCards: []
   playerMaxHealth: 50
   enemyMaxHealth: 200
   playerHealthText: {fileID: 695556040}
@@ -4784,6 +4787,7 @@ MonoBehaviour:
   dealDelay: 0.4
   dealDuration: 0.5
   scalingPerRound: 0
+  affixChance: 0.15
 --- !u!4 &1857577712
 Transform:
   m_ObjectHideFlags: 0

@@ -108,6 +108,26 @@ public class DeckManager : MonoBehaviour
             }
         }
 
+        // Silák: za každé 2 sigily (affixy) na poli +1 DMG kartám se Silákem
+        int totalAffixes = 0;
+        for (int i = 0; i < fieldSlots.Length; i++)
+        {
+            if (occupiedSlots.TryGetValue(i, out Card card4) && card4 != null)
+                totalAffixes += card4.affixes.Count;
+        }
+        int silakBonus = totalAffixes / 2;
+        if (silakBonus > 0)
+        {
+            for (int i = 0; i < fieldSlots.Length; i++)
+            {
+                if (occupiedSlots.TryGetValue(i, out Card card5) && card5 != null)
+                {
+                    if (card5.affixes.Exists(a => a is AffixSilak))
+                        card5.currentDamage += silakBonus;
+                }
+            }
+        }
+
         // Po změně statů aktualizuj zobrazení
         for (int i = 0; i < fieldSlots.Length; i++)
         {
@@ -835,6 +855,35 @@ public class DeckManager : MonoBehaviour
         yield return card.MoveToPosition(fieldSlots[slotIndex].position, dealDuration);
         Quaternion slotRot = fieldSlots[slotIndex].rotation * Quaternion.Euler(0f, 0f, cardPrefab.transform.rotation.eulerAngles.z);
         card.SetBasePositionAndRotation(fieldSlots[slotIndex].position, slotRot, true);
+
+        // Bordelář: spawn Bordel na přilehlých volných slotech
+        if (card.affixes.Exists(a => a is AffixBordelar))
+        {
+            CardData bordelData = GameManager.Instance != null ? GameManager.Instance.bordelTemplate : null;
+            if (bordelData != null)
+            {
+                int[] adj = new int[] { slotIndex - 1, slotIndex + 1 };
+                foreach (int a in adj)
+                {
+                    if (a >= 0 && a < fieldSlots.Length && !occupiedSlots.ContainsKey(a))
+                    {
+                        Debug.Log($"[DeckManager] Bordelář: spawn Bordel na slotu {a}.");
+                        yield return SpawnCardOnSlot(bordelData, a);
+                    }
+                }
+            }
+        }
+
+        // Imitátor: vytvoří kopii karty do ruky (1×)
+        var imitator = card.affixes.Find(a => a is AffixImitator) as AffixImitator;
+        if (imitator != null && !imitator.used && card.data != null)
+        {
+            imitator.used = true;
+            Debug.Log($"[DeckManager] Imitátor: kopie '{card.data.cardName}' přidána do ruky.");
+            yield return card.ImitateAnimation();
+            AddCardToHand(card.data);
+        }
+
         isBusy = false;
     }
 

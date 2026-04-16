@@ -33,3 +33,11 @@ MonoBehaviour:
     icon: {fileID: 21300000, guid: 55fa94937a19d0746b525d6c9ebe1d2c, type: 3}
   - affixType: "P\u0159ekv\xE1pko"
     icon: {fileID: 21300000, guid: 0a4933a6f3d810d45a6817c8e300e9a4, type: 3}
+  - affixType: Bomba
+    icon: {fileID: 21300000, guid: 3eece16b16c03a14197c9c57cd1ccd5f, type: 3}
+  - affixType: "Bordel\xE1\u0159"
+    icon: {fileID: 21300000, guid: d239de3d512715847bb65b99cf0257e0, type: 3}
+  - affixType: Kaktus
+    icon: {fileID: 21300000, guid: 09dde2045f05f8e45bb9a8e2c9260147, type: 3}
+  - affixType: Truhlice
+    icon: {fileID: 21300000, guid: 67fc918ab215d044d9a52e83504f8dca, type: 3}
